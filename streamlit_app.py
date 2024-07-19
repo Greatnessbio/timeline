@@ -28,12 +28,24 @@ def load_and_process_data(file):
     
     return df
 
-def create_gantt_chart(df):
-    fig = px.timeline(df, x_start="Start Date", x_end="Due Date", y="Task ID", color="Completion_Status",
-                      hover_name="Name", hover_data=["Assignee", "Projects", "Estimated Hours"],
+def create_interactive_gantt(df):
+    df_sorted = df.sort_values('Start Date')
+    fig = px.timeline(df_sorted, x_start="Start Date", x_end="Due Date", y="Name", color="Completion_Status",
+                      hover_data=["Assignee", "Projects", "Estimated Hours", "Harvest Hours"],
+                      labels={"Name": "Task Name"},
                       title="Interactive Gantt Chart")
     fig.update_yaxes(autorange="reversed")
-    fig.update_layout(height=600, xaxis_title="Date", yaxis_title="Task ID")
+    fig.update_layout(height=800, xaxis_title="Date", yaxis_title="Task Name")
+    
+    # Add progress bars
+    for i, task in df_sorted.iterrows():
+        if task['Completion_Status'] == 'Completed':
+            fig.add_shape(type="rect",
+                          x0=task['Start Date'], x1=task['Completed At'],
+                          y0=i-0.4, y1=i+0.4,
+                          fillcolor="lightgreen", opacity=0.5,
+                          layer="below", line_width=0)
+
     return fig
 
 def create_task_status_distribution(df):
@@ -48,7 +60,7 @@ def create_workload_by_assignee(df):
     workload = df.groupby('Assignee')['Estimated Hours'].sum().sort_values(ascending=False)
     fig = px.bar(workload, x=workload.index, y=workload.values, 
                  title="Workload by Assignee", labels={'y': 'Estimated Hours', 'x': 'Assignee'})
-    fig.update_layout(height=400)
+    fig.update_layout(height=500)
     return fig
 
 def create_task_completion_trend(df):
@@ -74,13 +86,6 @@ def create_estimated_vs_actual_hours(df):
     fig.update_layout(height=500)
     return fig
 
-def create_task_priority_matrix(df):
-    fig = px.scatter(df, x='Due Date', y='Estimated Hours', color='Completion_Status', 
-                     size='Number of Delays', hover_name='Name', 
-                     title='Task Priority Matrix')
-    fig.update_layout(height=500)
-    return fig
-
 def create_billable_hours_chart(df):
     billable_hours = df.groupby('Billable or Non-Billable')['Harvest Hours'].sum().reset_index()
     fig = px.pie(billable_hours, values='Harvest Hours', names='Billable or Non-Billable',
@@ -89,35 +94,17 @@ def create_billable_hours_chart(df):
     fig.update_layout(height=400)
     return fig
 
-def create_dependency_network(df):
-    edges = []
-    for _, task in df.iterrows():
-        if pd.notnull(task['Blocked By (Dependencies)']):
-            blockers = str(task['Blocked By (Dependencies)']).split(',')
-            for blocker in blockers:
-                edges.append((blocker.strip(), task['Task ID']))
-    
-    fig = go.Figure(data=[go.Sankey(
-        node = dict(
-          pad = 15,
-          thickness = 20,
-          line = dict(color = "black", width = 0.5),
-          label = df['Task ID'].tolist(),
-          color = "blue"
-        ),
-        link = dict(
-          source = [df['Task ID'].tolist().index(edge[0]) for edge in edges], 
-          target = [df['Task ID'].tolist().index(edge[1]) for edge in edges],
-          value = [1] * len(edges)
-      ))])
-    
-    fig.update_layout(title_text="Task Dependency Network", font_size=10, height=600)
+def create_job_category_distribution(df):
+    job_category_counts = df['Job Category'].value_counts()
+    fig = px.bar(job_category_counts, x=job_category_counts.index, y=job_category_counts.values,
+                 title="Distribution of Job Categories", labels={'y': 'Number of Tasks', 'x': 'Job Category'})
+    fig.update_layout(height=500)
     return fig
 
 def main():
     st.set_page_config(layout="wide", page_title="Interactive PM Dashboard")
     
-    st.title("Enhanced Interactive Project Management Dashboard")
+    st.title("Revised Interactive Project Management Dashboard")
     
     uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
     
@@ -133,9 +120,9 @@ def main():
         col4.metric("Total Estimated Hours", f"{df['Estimated Hours'].sum():.2f}")
         col5.metric("Total Actual Hours", f"{df['Harvest Hours'].sum():.2f}")
         
-        # Gantt Chart
+        # Interactive Gantt Chart
         st.subheader("Interactive Gantt Chart")
-        gantt_fig = create_gantt_chart(df)
+        gantt_fig = create_interactive_gantt(df)
         st.plotly_chart(gantt_fig, use_container_width=True)
         
         # Task Status and Workload
@@ -167,20 +154,15 @@ def main():
         hours_fig = create_estimated_vs_actual_hours(df)
         st.plotly_chart(hours_fig, use_container_width=True)
         
-        # Task Priority Matrix
-        st.subheader("Task Priority Matrix")
-        priority_fig = create_task_priority_matrix(df)
-        st.plotly_chart(priority_fig, use_container_width=True)
-        
         # Billable Hours Chart
         st.subheader("Billable vs Non-Billable Hours")
         billable_fig = create_billable_hours_chart(df)
         st.plotly_chart(billable_fig, use_container_width=True)
         
-        # Task Dependency Network
-        st.subheader("Task Dependency Network")
-        dependency_fig = create_dependency_network(df)
-        st.plotly_chart(dependency_fig, use_container_width=True)
+        # Job Category Distribution
+        st.subheader("Job Category Distribution")
+        job_category_fig = create_job_category_distribution(df)
+        st.plotly_chart(job_category_fig, use_container_width=True)
         
         # Custom Analysis
         st.header("Custom Analysis")
