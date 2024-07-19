@@ -28,11 +28,12 @@ def load_and_process_data(file):
     
     return df
 
-def create_project_timeline(df):
-    fig = px.timeline(df, x_start="Start Date", x_end="Due Date", y="Projects", color="Completion_Status",
-                      hover_name="Name", title="Project Timeline")
+def create_gantt_chart(df):
+    fig = px.timeline(df, x_start="Start Date", x_end="Due Date", y="Task ID", color="Completion_Status",
+                      hover_name="Name", hover_data=["Assignee", "Projects", "Estimated Hours"],
+                      title="Interactive Gantt Chart")
     fig.update_yaxes(autorange="reversed")
-    fig.update_layout(height=600)
+    fig.update_layout(height=600, xaxis_title="Date", yaxis_title="Task ID")
     return fig
 
 def create_task_status_distribution(df):
@@ -80,10 +81,43 @@ def create_task_priority_matrix(df):
     fig.update_layout(height=500)
     return fig
 
+def create_billable_hours_chart(df):
+    billable_hours = df.groupby('Billable or Non-Billable')['Harvest Hours'].sum().reset_index()
+    fig = px.pie(billable_hours, values='Harvest Hours', names='Billable or Non-Billable',
+                 title='Billable vs Non-Billable Hours')
+    fig.update_traces(textposition='inside', textinfo='percent+label')
+    fig.update_layout(height=400)
+    return fig
+
+def create_dependency_network(df):
+    edges = []
+    for _, task in df.iterrows():
+        if pd.notnull(task['Blocked By (Dependencies)']):
+            blockers = str(task['Blocked By (Dependencies)']).split(',')
+            for blocker in blockers:
+                edges.append((blocker.strip(), task['Task ID']))
+    
+    fig = go.Figure(data=[go.Sankey(
+        node = dict(
+          pad = 15,
+          thickness = 20,
+          line = dict(color = "black", width = 0.5),
+          label = df['Task ID'].tolist(),
+          color = "blue"
+        ),
+        link = dict(
+          source = [df['Task ID'].tolist().index(edge[0]) for edge in edges], 
+          target = [df['Task ID'].tolist().index(edge[1]) for edge in edges],
+          value = [1] * len(edges)
+      ))])
+    
+    fig.update_layout(title_text="Task Dependency Network", font_size=10, height=600)
+    return fig
+
 def main():
     st.set_page_config(layout="wide", page_title="Interactive PM Dashboard")
     
-    st.title("Interactive Project Management Dashboard")
+    st.title("Enhanced Interactive Project Management Dashboard")
     
     uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
     
@@ -92,16 +126,17 @@ def main():
         
         # Project Overview
         st.header("Project Overview")
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         col1.metric("Total Tasks", len(df))
         col2.metric("Completed Tasks", len(df[df['Completion_Status'] == 'Completed']))
         col3.metric("Overdue Tasks", len(df[df['Completion_Status'] == 'Overdue']))
         col4.metric("Total Estimated Hours", f"{df['Estimated Hours'].sum():.2f}")
+        col5.metric("Total Actual Hours", f"{df['Harvest Hours'].sum():.2f}")
         
-        # Project Timeline
-        st.subheader("Project Timeline")
-        timeline_fig = create_project_timeline(df)
-        st.plotly_chart(timeline_fig, use_container_width=True)
+        # Gantt Chart
+        st.subheader("Interactive Gantt Chart")
+        gantt_fig = create_gantt_chart(df)
+        st.plotly_chart(gantt_fig, use_container_width=True)
         
         # Task Status and Workload
         col1, col2 = st.columns(2)
@@ -136,6 +171,16 @@ def main():
         st.subheader("Task Priority Matrix")
         priority_fig = create_task_priority_matrix(df)
         st.plotly_chart(priority_fig, use_container_width=True)
+        
+        # Billable Hours Chart
+        st.subheader("Billable vs Non-Billable Hours")
+        billable_fig = create_billable_hours_chart(df)
+        st.plotly_chart(billable_fig, use_container_width=True)
+        
+        # Task Dependency Network
+        st.subheader("Task Dependency Network")
+        dependency_fig = create_dependency_network(df)
+        st.plotly_chart(dependency_fig, use_container_width=True)
         
         # Custom Analysis
         st.header("Custom Analysis")
