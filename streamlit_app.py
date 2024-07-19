@@ -6,145 +6,117 @@ from datetime import datetime, timedelta
 
 # Global variables
 DATE_COLUMNS = ['Start Date', 'Due Date', 'Created At', 'Completed At', 'Last Modified']
-NUMERIC_COLUMNS = ['Estimated Hours', 'Total Hours Estimate', 'Number of Delays']
+NUMERIC_COLUMNS = ['Estimated Hours', 'Total Hours Estimate', 'Number of Delays', 'Harvest Hours']
 
-def load_data(file):
+def load_and_process_data(file):
     df = pd.read_csv(file)
     for col in DATE_COLUMNS:
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors='coerce')
+    
     df['Duration'] = (df['Due Date'] - df['Start Date']).dt.days
-    df['Completion_Status'] = df.apply(lambda row: 'Completed' if pd.notnull(row['Completed At']) else 'In Progress' if row['Overdue'] != True else 'Overdue', axis=1)
+    df['Completion_Status'] = df.apply(lambda row: 'Completed' if pd.notnull(row['Completed At']) 
+                                       else 'Overdue' if row['Overdue'] == True 
+                                       else 'In Progress', axis=1)
+    
+    # Ensure all necessary columns exist, if not, create with default values
+    for col in NUMERIC_COLUMNS:
+        if col not in df.columns:
+            df[col] = 0
+    
     return df
 
-def filter_data(df):
-    st.sidebar.header("Filters")
-    
-    date_range = st.sidebar.date_input(
-        "Select Date Range",
-        value=(df['Start Date'].min().date(), df['Due Date'].max().date()),
-        min_value=df['Start Date'].min().date(),
-        max_value=df['Due Date'].max().date()
-    )
-
-    assignees = df['Assignee'].dropna().unique().tolist()
-    selected_assignees = st.sidebar.multiselect("Select Assignees", options=assignees, default=assignees)
-
-    projects = df['Projects'].dropna().unique().tolist()
-    selected_projects = st.sidebar.multiselect("Select Projects", options=projects, default=projects)
-
-    statuses = df['Deliverable Status'].dropna().unique().tolist()
-    selected_statuses = st.sidebar.multiselect("Select Deliverable Statuses", options=statuses, default=statuses)
-
-    filtered_df = df[
-        (df['Start Date'].dt.date >= date_range[0]) &
-        (df['Due Date'].dt.date <= date_range[1]) &
-        (df['Assignee'].isin(selected_assignees)) &
-        (df['Projects'].isin(selected_projects)) &
-        (df['Deliverable Status'].isin(selected_statuses))
-    ]
-
-    return filtered_df
-
-def project_overview(df):
-    st.title("Project Overview")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total Tasks", len(df))
-    col2.metric("Completed Tasks", len(df[df['Completion_Status'] == 'Completed']))
-    col3.metric("Overdue Tasks", len(df[df['Completion_Status'] == 'Overdue']))
-    col4.metric("Total Estimated Hours", f"{df['Estimated Hours'].sum():.2f}")
-
-    # Project Timeline
+def create_project_timeline(df):
     fig = px.timeline(df, x_start="Start Date", x_end="Due Date", y="Projects", color="Completion_Status",
                       hover_name="Name", title="Project Timeline")
     fig.update_yaxes(autorange="reversed")
-    st.plotly_chart(fig, use_container_width=True)
+    return fig
 
-    # Task Status Distribution
+def create_task_status_distribution(df):
     status_counts = df['Completion_Status'].value_counts()
-    fig = px.pie(status_counts, values=status_counts.values, names=status_counts.index, title="Task Status Distribution")
-    st.plotly_chart(fig, use_container_width=True)
+    fig = px.pie(status_counts, values=status_counts.values, names=status_counts.index, 
+                 title="Task Status Distribution")
+    return fig
 
-def resource_allocation(df):
-    st.title("Resource Allocation")
+def create_workload_by_assignee(df):
+    workload = df.groupby('Assignee')['Estimated Hours'].sum().sort_values(ascending=False)
+    fig = px.bar(workload, x=workload.index, y=workload.values, 
+                 title="Workload by Assignee", labels={'y': 'Estimated Hours', 'x': 'Assignee'})
+    return fig
 
-    # Workload by Assignee
-    fig = px.bar(df.groupby('Assignee')['Estimated Hours'].sum().reset_index(), 
-                 x='Assignee', y='Estimated Hours', title="Workload by Assignee")
-    st.plotly_chart(fig, use_container_width=True)
+def create_task_completion_trend(df):
+    df['Completion_Week'] = df['Completed At'].dt.to_period('W').astype(str)
+    completion_trend = df[df['Completion_Status'] == 'Completed'].groupby('Completion_Week').size().reset_index(name='Completed Tasks')
+    fig = px.line(completion_trend, x='Completion_Week', y='Completed Tasks', title="Task Completion Trend")
+    return fig
 
-    # Task Distribution by Assignee
-    fig = px.bar(df.groupby(['Assignee', 'Completion_Status']).size().unstack(fill_value=0), 
-                 title="Task Distribution by Assignee", barmode='stack')
-    st.plotly_chart(fig, use_container_width=True)
-
-def task_analysis(df):
-    st.title("Task Analysis")
-
-    # Task Duration vs Estimated Hours
-    fig = px.scatter(df, x="Duration", y="Estimated Hours", color="Completion_Status", 
-                     hover_name="Name", title="Task Duration vs Estimated Hours")
-    st.plotly_chart(fig, use_container_width=True)
-
-    # Top 10 Time-Consuming Tasks
-    top_tasks = df.nlargest(10, 'Estimated Hours')
-    fig = px.bar(top_tasks, x='Name', y='Estimated Hours', title="Top 10 Time-Consuming Tasks")
-    fig.update_xaxes(tickangle=45)
-    st.plotly_chart(fig, use_container_width=True)
-
-def delay_analysis(df):
-    st.title("Delay Analysis")
-
-    # Number of Delays by Project
-    fig = px.bar(df.groupby('Projects')['Number of Delays'].mean().reset_index(), 
-                 x='Projects', y='Number of Delays', title="Average Number of Delays by Project")
-    st.plotly_chart(fig, use_container_width=True)
-
-    # Delay Rationale Distribution
-    delay_rationale = df['Delay Rationale'].value_counts()
-    fig = px.pie(delay_rationale, values=delay_rationale.values, names=delay_rationale.index, 
-                 title="Delay Rationale Distribution")
-    st.plotly_chart(fig, use_container_width=True)
-
-def custom_view(df):
-    st.title("Custom View")
-
-    chart_type = st.selectbox("Select Chart Type", ["Bar Chart", "Scatter Plot", "Line Chart"])
-    x_axis = st.selectbox("Select X-axis", df.columns)
-    y_axis = st.selectbox("Select Y-axis", NUMERIC_COLUMNS)
-    color_by = st.selectbox("Color by", ['None'] + df.columns.tolist())
-
-    if chart_type == "Bar Chart":
-        fig = px.bar(df, x=x_axis, y=y_axis, color=color_by if color_by != 'None' else None)
-    elif chart_type == "Scatter Plot":
-        fig = px.scatter(df, x=x_axis, y=y_axis, color=color_by if color_by != 'None' else None)
-    else:  # Line Chart
-        fig = px.line(df, x=x_axis, y=y_axis, color=color_by if color_by != 'None' else None)
-
-    st.plotly_chart(fig, use_container_width=True)
+def create_delay_analysis(df):
+    delay_by_project = df.groupby('Projects')['Number of Delays'].mean().sort_values(ascending=False)
+    fig = px.bar(delay_by_project, x=delay_by_project.index, y=delay_by_project.values,
+                 title="Average Number of Delays by Project", labels={'y': 'Average Delays', 'x': 'Project'})
+    return fig
 
 def main():
-    st.set_page_config(layout="wide", page_title="Comprehensive PM Dashboard")
+    st.set_page_config(layout="wide", page_title="PM Dashboard")
     
-    uploaded_file = st.sidebar.file_uploader("Choose a CSV file", type="csv")
+    st.title("Project Management Dashboard")
+    
+    uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
     
     if uploaded_file is not None:
-        df = load_data(uploaded_file)
-        filtered_df = filter_data(df)
+        df = load_and_process_data(uploaded_file)
         
-        page = st.sidebar.selectbox("Select a View", ["Project Overview", "Resource Allocation", "Task Analysis", "Delay Analysis", "Custom View"])
+        # Project Overview
+        st.header("Project Overview")
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total Tasks", len(df))
+        col2.metric("Completed Tasks", len(df[df['Completion_Status'] == 'Completed']))
+        col3.metric("Overdue Tasks", len(df[df['Completion_Status'] == 'Overdue']))
+        col4.metric("Total Estimated Hours", f"{df['Estimated Hours'].sum():.2f}")
         
-        if page == "Project Overview":
-            project_overview(filtered_df)
-        elif page == "Resource Allocation":
-            resource_allocation(filtered_df)
-        elif page == "Task Analysis":
-            task_analysis(filtered_df)
-        elif page == "Delay Analysis":
-            delay_analysis(filtered_df)
-        elif page == "Custom View":
-            custom_view(filtered_df)
+        # Project Timeline
+        st.subheader("Project Timeline")
+        timeline_fig = create_project_timeline(df)
+        st.plotly_chart(timeline_fig, use_container_width=True)
+        
+        # Task Status Distribution
+        st.subheader("Task Status Distribution")
+        status_fig = create_task_status_distribution(df)
+        st.plotly_chart(status_fig, use_container_width=True)
+        
+        # Workload by Assignee
+        st.subheader("Workload by Assignee")
+        workload_fig = create_workload_by_assignee(df)
+        st.plotly_chart(workload_fig, use_container_width=True)
+        
+        # Task Completion Trend
+        st.subheader("Task Completion Trend")
+        trend_fig = create_task_completion_trend(df)
+        st.plotly_chart(trend_fig, use_container_width=True)
+        
+        # Delay Analysis
+        st.subheader("Delay Analysis")
+        delay_fig = create_delay_analysis(df)
+        st.plotly_chart(delay_fig, use_container_width=True)
+        
+        # Custom Analysis
+        st.header("Custom Analysis")
+        chart_type = st.selectbox("Select Chart Type", ["Bar Chart", "Scatter Plot", "Line Chart"])
+        x_axis = st.selectbox("Select X-axis", df.columns)
+        y_axis = st.selectbox("Select Y-axis", [col for col in df.columns if df[col].dtype in ['int64', 'float64']])
+        color_by = st.selectbox("Color by", ['None'] + df.columns.tolist())
+        
+        if chart_type == "Bar Chart":
+            custom_fig = px.bar(df, x=x_axis, y=y_axis, color=color_by if color_by != 'None' else None,
+                                title=f"{y_axis} by {x_axis}")
+        elif chart_type == "Scatter Plot":
+            custom_fig = px.scatter(df, x=x_axis, y=y_axis, color=color_by if color_by != 'None' else None,
+                                    title=f"{y_axis} vs {x_axis}")
+        else:  # Line Chart
+            custom_fig = px.line(df, x=x_axis, y=y_axis, color=color_by if color_by != 'None' else None,
+                                 title=f"{y_axis} over {x_axis}")
+        
+        st.plotly_chart(custom_fig, use_container_width=True)
 
 if __name__ == "__main__":
     main()
