@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 DATE_COLUMNS = ['Start Date', 'Due Date', 'Created At', 'Completed At', 'Last Modified']
 NUMERIC_COLUMNS = ['Estimated Hours', 'Total Hours Estimate', 'Number of Delays', 'Harvest Hours']
 
+@st.cache_data
 def load_and_process_data(file):
     df = pd.read_csv(file)
     for col in DATE_COLUMNS:
@@ -28,12 +29,15 @@ def load_and_process_data(file):
     
     return df
 
+@st.cache_data
 def create_interactive_gantt(df):
     df_sorted = df.sort_values('Start Date')
+    df_sorted = df_sorted.head(100)  # Limit to 100 tasks for performance
+    
     fig = px.timeline(df_sorted, x_start="Start Date", x_end="Due Date", y="Name", color="Completion_Status",
                       hover_data=["Assignee", "Projects", "Estimated Hours", "Harvest Hours"],
                       labels={"Name": "Task Name"},
-                      title="Interactive Gantt Chart")
+                      title="Interactive Gantt Chart (Top 100 Tasks)")
     fig.update_yaxes(autorange="reversed")
     fig.update_layout(height=800, xaxis_title="Date", yaxis_title="Task Name")
     
@@ -48,6 +52,7 @@ def create_interactive_gantt(df):
 
     return fig
 
+@st.cache_data
 def create_task_status_distribution(df):
     status_counts = df['Completion_Status'].value_counts()
     fig = px.pie(status_counts, values=status_counts.values, names=status_counts.index, 
@@ -56,6 +61,7 @@ def create_task_status_distribution(df):
     fig.update_layout(height=400)
     return fig
 
+@st.cache_data
 def create_workload_by_assignee(df):
     workload = df.groupby('Assignee')['Estimated Hours'].sum().sort_values(ascending=False)
     fig = px.bar(workload, x=workload.index, y=workload.values, 
@@ -63,6 +69,7 @@ def create_workload_by_assignee(df):
     fig.update_layout(height=500)
     return fig
 
+@st.cache_data
 def create_task_completion_trend(df):
     df['Completion_Week'] = df['Completed At'].dt.to_period('W').astype(str)
     completion_trend = df[df['Completion_Status'] == 'Completed'].groupby('Completion_Week').size().reset_index(name='Completed Tasks')
@@ -70,6 +77,7 @@ def create_task_completion_trend(df):
     fig.update_layout(height=400)
     return fig
 
+@st.cache_data
 def create_delay_analysis(df):
     delay_by_project = df.groupby('Projects')['Number of Delays'].mean().sort_values(ascending=False)
     fig = px.bar(delay_by_project, x=delay_by_project.index, y=delay_by_project.values,
@@ -77,6 +85,7 @@ def create_delay_analysis(df):
     fig.update_layout(height=400)
     return fig
 
+@st.cache_data
 def create_estimated_vs_actual_hours(df):
     fig = px.scatter(df, x='Estimated Hours', y='Harvest Hours', color='Projects', 
                      hover_name='Name', title='Estimated vs Actual Hours')
@@ -86,6 +95,7 @@ def create_estimated_vs_actual_hours(df):
     fig.update_layout(height=500)
     return fig
 
+@st.cache_data
 def create_billable_hours_chart(df):
     billable_hours = df.groupby('Billable or Non-Billable')['Harvest Hours'].sum().reset_index()
     fig = px.pie(billable_hours, values='Harvest Hours', names='Billable or Non-Billable',
@@ -94,6 +104,7 @@ def create_billable_hours_chart(df):
     fig.update_layout(height=400)
     return fig
 
+@st.cache_data
 def create_job_category_distribution(df):
     job_category_counts = df['Job Category'].value_counts()
     fig = px.bar(job_category_counts, x=job_category_counts.index, y=job_category_counts.values,
@@ -104,7 +115,7 @@ def create_job_category_distribution(df):
 def main():
     st.set_page_config(layout="wide", page_title="Interactive PM Dashboard")
     
-    st.title("Revised Interactive Project Management Dashboard")
+    st.title("Optimized Interactive Project Management Dashboard")
     
     uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
     
@@ -121,7 +132,7 @@ def main():
         col5.metric("Total Actual Hours", f"{df['Harvest Hours'].sum():.2f}")
         
         # Interactive Gantt Chart
-        st.subheader("Interactive Gantt Chart")
+        st.subheader("Interactive Gantt Chart (Top 100 Tasks)")
         gantt_fig = create_interactive_gantt(df)
         st.plotly_chart(gantt_fig, use_container_width=True)
         
